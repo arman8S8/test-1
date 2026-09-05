@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Cyber Neon Mobile</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; touch-action: none; }
+    body {
+      background: #05050d;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      font-family: sans-serif;
+    }
+    canvas {
+      display: block;
+      background: #05050d;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener("resize", resize);
+    resize();
+
+    let screenShake = 0;
+    let score = 0;
+    let gameOver = false;
+
+    const player = {
+      x: canvas.width / 2,
+      y: canvas.height - 100,
+      r: 22,
+      color: "#00f0ff"
+    };
+
+    // کنترل لمسی برای موبایل
+    let touching = false;
+    window.addEventListener("touchstart", e => {
+      touching = true;
+      if (gameOver) resetGame();
+      else updateTouch(e);
+    });
+    window.addEventListener("touchmove", e => {
+      if (!gameOver) updateTouch(e);
+    });
+    window.addEventListener("touchend", () => touching = false);
+
+    function updateTouch(e) {
+      const touch = e.touches[0];
+      player.x = touch.clientX;
+      player.y = touch.clientY - 40;
+    }
+
+    // کنترل کیبورد برای کامپیوتر
+    const keys = {};
+    window.addEventListener("keydown", e => {
+      keys[e.code] = true;
+      if (e.code === "KeyR" && gameOver) resetGame();
+    });
+    window.addEventListener("keyup", e => keys[e.code] = false);
+
+    let bullets = [];
+    let enemies = [];
+    let particles = [];
+    let stars = Array.from({ length: 60 }, () => ({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      size: Math.random() * 2 + 0.5,
+      speed: Math.random() * 2 + 1
+    }));
+
+    function createExplosion(x, y, color, count = 20) {
+      for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 5 + 1.5;
+        particles.push({
+          x, y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: 1,
+          decay: Math.random() * 0.03 + 0.02,
+          color,
+          size: Math.random() * 3 + 2
+        });
+      }
+    }
+
+    let lastShot = 0;
+    function autoShoot() {
+      const now = performance.now();
+      if (now - lastShot < 150) return;
+      lastShot = now;
+      bullets.push({ x: player.x, y: player.y - 15, r: 3.5, speed: 14, color: "#ff007f" });
+    }
+
+    function spawnEnemy() {
+      if (Math.random() < 0.04) {
+        const r = Math.random() * 12 + 16;
+        enemies.push({
+          x: Math.random() * (canvas.width - r * 2) + r,
+          y: -r,
+          r,
+          speed: Math.random() * 2 + 2.5,
+          color: "#ffe600",
+          hp: Math.floor(r / 10)
+        });
+      }
+    }
+
+    function update() {
+      if (gameOver) return;
+
+      // حرکت کیبورد دسکتاپ
+      if ((keys["ArrowLeft"] || keys["KeyA"]) && player.x > player.r) player.x -= 7;
+      if ((keys["ArrowRight"] || keys["KeyD"]) && player.x < canvas.width - player.r) player.x += 7;
+      if (keys["Space"] || touching) autoShoot();
+
+      stars.forEach(s => {
+        s.y += s.speed;
+        if (s.y > canvas.height) { s.y = 0; s.x = Math.random() * canvas.width; }
+      });
+
+      bullets.forEach((b, bi) => {
+        b.y -= b.speed;
+        if (b.y < 0) bullets.splice(bi, 1);
+      });
+
+      enemies.forEach((e, ei) => {
+        e.y += e.speed;
+
+        bullets.forEach((b, bi) => {
+          if (Math.hypot(e.x - b.x, e.y - b.y) < e.r + b.r) {
+            createExplosion(b.x, b.y, "#ff007f", 6);
+            bullets.splice(bi, 1);
+            e.hp--;
+            if (e.hp <= 0) {
+              createExplosion(e.x, e.y, e.color, 24);
+              screenShake = 6;
+              score += 100;
+              enemies.splice(ei, 1);
+            }
+          }
+        });
+
+        if (Math.hypot(e.x - player.x, e.y - player.y) < e.r + player.r) {
+          createExplosion(player.x, player.y, player.color, 40);
+          screenShake = 20;
+          gameOver = true;
+        }
+
+        if (e.y - e.r > canvas.height) enemies.splice(ei, 1);
+      });
+
+      particles.forEach((p, pi) => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life -= p.decay;
+        if (p.life <= 0) particles.splice(pi, 1);
+      });
+
+      spawnEnemy();
+      if (screenShake > 0) screenShake *= 0.88;
+    }
+
+    function draw() {
+      ctx.save();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      if (screenShake > 0.4) {
+        ctx.translate((Math.random() - 0.5) * screenShake, (Math.random() - 0.5) * screenShake);
+      }
+
+      ctx.fillStyle = "#ffffff55";
+      stars.forEach(s => {
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      ctx.shadowBlur = 12;
+      particles.forEach(p => {
+        ctx.shadowColor = p.color;
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = Math.max(p.life, 0);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.globalAlpha = 1.0;
+
+      bullets.forEach(b => {
+        ctx.shadowColor = b.color;
+        ctx.shadowBlur = 15;
+        ctx.fillStyle = b.color;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      enemies.forEach(e => {
+        ctx.shadowColor = e.color;
+        ctx.shadowBlur = 12;
+        ctx.strokeStyle = e.color;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
+        ctx.stroke();
+      });
+
+      if (!gameOver) {
+        ctx.shadowColor = player.color;
+        ctx.shadowBlur = 18;
+        ctx.fillStyle = player.color;
+        ctx.beginPath();
+        ctx.moveTo(player.x, player.y - player.r);
+        ctx.lineTo(player.x - player.r, player.y + player.r);
+        ctx.lineTo(player.x, player.y + player.r * 0.5);
+        ctx.lineTo(player.x + player.r, player.y + player.r);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 18px monospace";
+      ctx.fillText(`SCORE: ${score}`, 20, 35);
+
+      if (gameOver) {
+        ctx.fillStyle = "rgba(5, 5, 13, 0.8)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.shadowColor = "#ff0055";
+        ctx.shadowBlur = 20;
+        ctx.fillStyle = "#ff0055";
+        ctx.font = "bold 32px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("SYSTEM CRASHED", canvas.width / 2, canvas.height / 2 - 15);
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "#00f0ff";
+        ctx.font = "16px sans-serif";
+        ctx.fillText("Tap anywhere to Reboot", canvas.width / 2, canvas.height / 2 + 30);
+        ctx.textAlign = "left";
+      }
+
+      ctx.restore();
+    }
+
+    function resetGame() {
+      bullets = [];
+      enemies = [];
+      particles = [];
+      score = 0;
+      player.x = canvas.width / 2;
+      player.y = canvas.height - 100;
+      gameOver = false;
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+    loop();
+  </script>
+</body>
+</html>

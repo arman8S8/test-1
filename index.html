@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Cyber Neon Defense</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #05050d;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    #gameCanvas {
+      box-shadow: 0 0 35px rgba(0, 240, 255, 0.25);
+      border: 1px solid #00f0ff44;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas" width="800" height="700"></canvas>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+
+    let screenShake = 0;
+    let score = 0;
+    let gameOver = false;
+
+    // بازیکن
+    const player = {
+      x: canvas.width / 2,
+      y: canvas.height - 70,
+      r: 18,
+      speed: 7,
+      color: "#00f0ff"
+    };
+
+    const keys = {};
+    window.addEventListener("keydown", e => keys[e.code] = true);
+    window.addEventListener("keyup", e => keys[e.code] = false);
+
+    // لیست‌ها
+    let bullets = [];
+    let enemies = [];
+    let particles = [];
+    let stars = Array.from({ length: 90 }, () => ({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      size: Math.random() * 2,
+      speed: Math.random() * 1.5 + 0.5
+    }));
+
+    // پارتیکل انفجار نئونی
+    function createExplosion(x, y, color, count = 22) {
+      for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 6 + 1.5;
+        particles.push({
+          x, y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: 1,
+          decay: Math.random() * 0.025 + 0.015,
+          color,
+          size: Math.random() * 3 + 2
+        });
+      }
+    }
+
+    let lastShot = 0;
+    function spawnBullet() {
+      const now = performance.now();
+      if (now - lastShot < 140) return;
+      lastShot = now;
+
+      bullets.push({
+        x: player.x,
+        y: player.y - 12,
+        r: 3.5,
+        speed: 12,
+        color: "#ff007f"
+      });
+    }
+
+    function spawnEnemy() {
+      if (Math.random() < 0.035) {
+        const r = Math.random() * 14 + 14;
+        enemies.push({
+          x: Math.random() * (canvas.width - r * 2) + r,
+          y: -r,
+          r,
+          speed: Math.random() * 2.2 + 2,
+          color: "#ffe600",
+          hp: Math.floor(r / 10)
+        });
+      }
+    }
+
+    function update() {
+      if (gameOver) {
+        if (keys["KeyR"]) resetGame();
+        return;
+      }
+
+      // حرکت بازیکن
+      if ((keys["ArrowLeft"] || keys["KeyA"]) && player.x > player.r) player.x -= player.speed;
+      if ((keys["ArrowRight"] || keys["KeyD"]) && player.x < canvas.width - player.r) player.x += player.speed;
+      if (keys["Space"]) spawnBullet();
+
+      // پس‌زمینه ستاره‌ای
+      stars.forEach(s => {
+        s.y += s.speed;
+        if (s.y > canvas.height) { s.y = 0; s.x = Math.random() * canvas.width; }
+      });
+
+      // تیرها
+      bullets.forEach((b, bi) => {
+        b.y -= b.speed;
+        if (b.y < 0) bullets.splice(bi, 1);
+      });
+
+      // دشمنان
+      enemies.forEach((e, ei) => {
+        e.y += e.speed;
+
+        // برخورد تیر با دشمن
+        bullets.forEach((b, bi) => {
+          const dist = Math.hypot(e.x - b.x, e.y - b.y);
+          if (dist < e.r + b.r) {
+            createExplosion(b.x, b.y, "#ff007f", 8);
+            bullets.splice(bi, 1);
+            e.hp--;
+            if (e.hp <= 0) {
+              createExplosion(e.x, e.y, e.color, 26);
+              screenShake = 7;
+              score += 100;
+              enemies.splice(ei, 1);
+            }
+          }
+        });
+
+        // برخورد دشمن با بازیکن
+        if (Math.hypot(e.x - player.x, e.y - player.y) < e.r + player.r) {
+          createExplosion(player.x, player.y, player.color, 45);
+          screenShake = 22;
+          gameOver = true;
+        }
+
+        if (e.y - e.r > canvas.height) enemies.splice(ei, 1);
+      });
+
+      // مدیریت ذرات
+      particles.forEach((p, pi) => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life -= p.decay;
+        if (p.life <= 0) particles.splice(pi, 1);
+      });
+
+      spawnEnemy();
+      if (screenShake > 0) screenShake *= 0.88;
+    }
+
+    function draw() {
+      ctx.save();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // افکت شیک صفحه
+      if (screenShake > 0.4) {
+        const dx = (Math.random() - 0.5) * screenShake;
+        const dy = (Math.random() - 0.5) * screenShake;
+        ctx.translate(dx, dy);
+      }
+
+      // ستاره‌ها
+      ctx.fillStyle = "#ffffff55";
+      stars.forEach(s => {
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // پارتیکل‌ها با افکت Glow
+      ctx.shadowBlur = 12;
+      particles.forEach(p => {
+        ctx.shadowColor = p.color;
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = Math.max(p.life, 0);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.globalAlpha = 1.0;
+
+      // تیرها
+      bullets.forEach(b => {
+        ctx.shadowColor = b.color;
+        ctx.shadowBlur = 16;
+        ctx.fillStyle = b.color;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // دشمنان
+      enemies.forEach(e => {
+        ctx.shadowColor = e.color;
+        ctx.shadowBlur = 14;
+        ctx.strokeStyle = e.color;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
+        ctx.stroke();
+      });
+
+      // سفینه نئونی
+      if (!gameOver) {
+        ctx.shadowColor = player.color;
+        ctx.shadowBlur = 18;
+        ctx.fillStyle = player.color;
+        ctx.beginPath();
+        ctx.moveTo(player.x, player.y - player.r);
+        ctx.lineTo(player.x - player.r, player.y + player.r);
+        ctx.lineTo(player.x, player.y + player.r * 0.5);
+        ctx.lineTo(player.x + player.r, player.y + player.r);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // امتیاز
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 20px Consolas, monospace";
+      ctx.fillText(`SCORE: ${score}`, 24, 38);
+
+      // صفحه Game Over
+      if (gameOver) {
+        ctx.fillStyle = "rgba(5, 5, 13, 0.75)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.shadowColor = "#ff0055";
+        ctx.shadowBlur = 20;
+        ctx.fillStyle = "#ff0055";
+        ctx.font = "bold 44px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("SYSTEM DESTROYED", canvas.width / 2, canvas.height / 2 - 20);
+
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "#00f0ff";
+        ctx.font = "18px sans-serif";
+        ctx.fillText("Press R to Reboot", canvas.width / 2, canvas.height / 2 + 30);
+        ctx.textAlign = "left";
+      }
+
+      ctx.restore();
+    }
+
+    function resetGame() {
+      bullets = [];
+      enemies = [];
+      particles = [];
+      score = 0;
+      player.x = canvas.width / 2;
+      gameOver = false;
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+    loop();
+  </script>
+</body>
+</html>
