@@ -3,16 +3,182 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Space Defender - Ultimate</title>
+  <title>Space Defender - Global Leaderboard</title>
   <style>
     * { box-sizing: border-box; touch-action: none; user-select: none; }
     body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #05050d; font-family: sans-serif; }
     canvas { display: block; width: 100vw; height: 100vh; }
+
+    /* پنجره ثبت نام و لیدربورد آنلاین */
+    #leaderboard-modal {
+      display: none;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 85%;
+      max-width: 320px;
+      background: rgba(10, 15, 30, 0.95);
+      border: 2px solid #00ffff;
+      border-radius: 12px;
+      box-shadow: 0 0 25px rgba(0, 255, 255, 0.4);
+      padding: 16px;
+      color: #fff;
+      text-align: center;
+      z-index: 100;
+    }
+    #leaderboard-modal h2 { margin: 0 0 10px; color: #ff0055; font-size: 20px; }
+    #leaderboard-modal p { margin: 4px 0; font-size: 14px; }
+    #player-name-input {
+      width: 100%;
+      padding: 10px;
+      margin: 12px 0;
+      border: 1px solid #00e5ff;
+      border-radius: 6px;
+      background: #050814;
+      color: #fff;
+      font-size: 16px;
+      text-align: center;
+      outline: none;
+      touch-action: auto;
+      user-select: auto;
+    }
+    .btn {
+      background: #00ffff;
+      color: #05050d;
+      border: none;
+      padding: 10px 18px;
+      font-weight: bold;
+      border-radius: 6px;
+      font-size: 15px;
+      cursor: pointer;
+      width: 100%;
+      margin-bottom: 8px;
+    }
+    .btn-secondary {
+      background: transparent;
+      border: 1px solid #555;
+      color: #aaa;
+    }
+    #scores-list {
+      margin-top: 10px;
+      text-align: left;
+      font-size: 13px;
+      max-height: 120px;
+      overflow-y: auto;
+      border-top: 1px solid rgba(255,255,255,0.1);
+      padding-top: 8px;
+    }
+    .score-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 3px 0;
+      color: #ddd;
+    }
+    .score-row span:last-child { color: #ffeb3b; font-weight: bold; }
   </style>
 </head>
 <body>
   <canvas id="game"></canvas>
 
+  <div id="leaderboard-modal">
+    <h2 id="modal-title">ثبت رکورد جدید</h2>
+    <p>امتیاز شما: <span id="final-score-val" style="color:#00ffff; font-weight:bold;">0</span></p>
+    <div id="submit-section">
+      <input type="text" id="player-name-input" maxlength="12" placeholder="نام خود را بنویسید">
+      <button class="btn" id="btn-submit">ثبت در جدول جهانی</button>
+    </div>
+    <button class="btn btn-secondary" id="btn-restart">شروع بازی مجدد</button>
+    <div id="scores-list">
+      <div style="text-align:center; color:#888;">در حال دریافت برترین‌ها...</div>
+    </div>
+  </div>
+
+  <!-- اسکریپت ماژول فایربیس -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, getDocs, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBcmnZIxNGkPBj8j-grP5flgjrebXgi-hI",
+      authDomain: "space-defender-game.firebaseapp.com",
+      projectId: "space-defender-game",
+      storageBucket: "space-defender-game.firebasestorage.app",
+      messagingSenderId: "902447254764",
+      appId: "1:902447254764:web:ee83267fc9571c34ed69c9",
+      measurementId: "G-V5MBY3SVSW"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    const modal = document.getElementById('leaderboard-modal');
+    const finalScoreVal = document.getElementById('final-score-val');
+    const nameInput = document.getElementById('player-name-input');
+    const submitBtn = document.getElementById('btn-submit');
+    const restartBtn = document.getElementById('btn-restart');
+    const scoresList = document.getElementById('scores-list');
+    const submitSection = document.getElementById('submit-section');
+
+    async function loadTopScores() {
+      scoresList.innerHTML = '<div style="text-align:center; color:#888;">در حال دریافت...</div>';
+      try {
+        const q = query(collection(db, "scores"), orderBy("score", "desc"), limit(5));
+        const snap = await getDocs(q);
+        scoresList.innerHTML = '';
+        let rank = 1;
+        snap.forEach(doc => {
+          const d = doc.data();
+          const row = document.createElement('div');
+          row.className = 'score-row';
+          row.innerHTML = `<span>#${rank} ${d.name}</span><span>${d.score}</span>`;
+          scoresList.appendChild(row);
+          rank++;
+        });
+        if (rank === 1) scoresList.innerHTML = '<div style="text-align:center; color:#777;">هنوز رکوردی ثبت نشده!</div>';
+      } catch (e) {
+        scoresList.innerHTML = '<div style="text-align:center; color:#ff4444;">خطا در دریافت جدول</div>';
+      }
+    }
+
+    submitBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const name = nameInput.value.trim() || 'خلبان گمنام';
+      submitBtn.disabled = true;
+      submitBtn.innerText = 'در حال ثبت...';
+      try {
+        await addDoc(collection(db, "scores"), {
+          name: name,
+          score: window.latestGameScore || 0,
+          date: new Date()
+        });
+        submitSection.style.display = 'none';
+        await loadTopScores();
+      } catch (err) {
+        alert('خطا در ثبت رکورد');
+        submitBtn.disabled = false;
+        submitBtn.innerText = 'ثبت در جدول جهانی';
+      }
+    });
+
+    restartBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      modal.style.display = 'none';
+      if (window.onRestartGame) window.onRestartGame();
+    });
+
+    window.showLeaderboardModal = function(score) {
+      window.latestGameScore = score;
+      finalScoreVal.innerText = score;
+      submitSection.style.display = 'block';
+      submitBtn.disabled = false;
+      submitBtn.innerText = 'ثبت در جدول جهانی';
+      modal.style.display = 'block';
+      loadTopScores();
+    };
+  </script>
+
+  <!-- اسکریپت موتور بازی -->
   <script>
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
@@ -25,7 +191,6 @@
       H = canvas.height = window.innerHeight;
     });
 
-    // موتور تولید صدای پیشرفته بدون فایل خارجی (Web Audio API)
     let audioCtx = null;
     function initAudio() {
       if (!audioCtx) {
@@ -95,6 +260,7 @@
     let score = 0;
     let gameOver = false;
     let gameWon = false;
+    let modalShown = false;
     let lastShot = 0;
     let baseFireRate = 220;
     let fireRate = baseFireRate; 
@@ -112,16 +278,15 @@
     const powerups = [];
     const floatingTexts = [];
 
-    // باس‌ها
     let boss = null;
     let bossSpawned2000 = false;
     let bossSpawned5000 = false;
     let bossSpawned10000 = false;
     let bossWarningTimer = 0;
-    let spiralAngle = 0; // برای شلیک چرخشی باس نهایی
+    let spiralAngle = 0;
 
     window.addEventListener('touchmove', (e) => {
-      if (gameOver) return;
+      if (gameOver || gameWon) return;
       const t = e.touches[0];
       player.targetX = t.clientX;
       player.targetY = t.clientY - 40;
@@ -129,14 +294,15 @@
 
     window.addEventListener('touchstart', (e) => {
       initAudio();
-      if (gameOver || gameWon) {
-        resetGame();
-        return;
-      }
+      if (gameOver || gameWon) return;
       const t = e.touches[0];
       player.targetX = t.clientX;
       player.targetY = t.clientY - 40;
     });
+
+    window.onRestartGame = function() {
+      resetGame();
+    };
 
     function resetGame() {
       score = 0;
@@ -151,6 +317,7 @@
       bossSpawned10000 = false;
       bossWarningTimer = 0;
       spiralAngle = 0;
+      modalShown = false;
       player.x = W / 2;
       player.y = H - 120;
       player.targetX = player.x;
@@ -230,7 +397,7 @@
           name: "VOID LEVIATHAN (FINAL BOSS)",
           x: W / 2, y: -110, targetY: 130,
           r: 65, hp: 220, maxHp: 220, vx: 2.5,
-          lastShoot: 0, shootInterval: 250, // رگبار مارپیچ
+          lastShoot: 0, shootInterval: 250,
           color: '#cc00ff'
         };
       }
@@ -239,7 +406,12 @@
     let enemyTimer = 0;
 
     function update(time) {
-      // شرایط ورود باس‌ها
+      if ((gameOver || gameWon) && !modalShown) {
+        modalShown = true;
+        if (window.showLeaderboardModal) window.showLeaderboardModal(score);
+        return;
+      }
+
       if (score >= 2000 && !bossSpawned2000 && !boss) {
         bossSpawned2000 = true;
         spawnBoss(1);
@@ -251,7 +423,6 @@
         spawnBoss(3);
       }
 
-      // شلیک خودکار بازیکن
       const currentRate = (powerTimer > 0 && fireRate < baseFireRate) ? fireRate : baseFireRate;
       if (!gameOver && !gameWon && time - lastShot > currentRate) {
         lastShot = time;
@@ -288,7 +459,6 @@
         }
       }
 
-      // حرکت و الگوی تیراندازی باس‌ها
       if (boss) {
         if (boss.y < boss.targetY) boss.y += 2;
         boss.x += boss.vx;
@@ -296,21 +466,17 @@
           boss.vx *= -1;
         }
 
-        // الگوی حمله بر اساس رده باس
         if (time - boss.lastShoot > boss.shootInterval) {
           boss.lastShoot = time;
-          
           if (boss.tier === 1) {
             bossBullets.push({ x: boss.x, y: boss.y + boss.r, vy: 5, r: 6 });
             bossBullets.push({ x: boss.x - 20, y: boss.y + boss.r, vy: 4.5, vx: -1.5, r: 5 });
             bossBullets.push({ x: boss.x + 20, y: boss.y + boss.r, vy: 4.5, vx: 1.5, r: 5 });
           } else if (boss.tier === 2) {
-            // شلیک سه‌گانه با زوایای مختلف
             for (let a = -2; a <= 2; a++) {
               bossBullets.push({ x: boss.x + (a * 10), y: boss.y + boss.r, vy: 4.8, vx: a * 1.4, r: 6 });
             }
           } else if (boss.tier === 3) {
-            // رگبار چرخشی و متمرکز غول آخر
             spiralAngle += 0.55;
             const bvx = Math.cos(spiralAngle) * 4.5;
             const bvy = Math.sin(spiralAngle) * 4.5 + 1.5;
@@ -320,7 +486,6 @@
         }
       }
 
-      // برخورد گلوله‌های بازیکن
       for (let i = bullets.length - 1; i >= 0; i--) {
         const b = bullets[i];
         b.y += b.vy;
@@ -336,18 +501,14 @@
             vibrate([100, 50, 200]);
             createParticles(boss.x, boss.y, boss.color, 50);
             createParticles(boss.x, boss.y, '#00ffff', 50);
-            
             score += boss.tier * 1500;
             baseFireRate = Math.max(90, baseFireRate - 35);
             addFloatingText("SPEED UPGRADED!", boss.x, boss.y - 20, '#00ffcc');
-            
             spawnPowerUp(boss.x, boss.y);
             spawnPowerUp(boss.x - 30, boss.y);
             spawnPowerUp(boss.x + 30, boss.y);
 
-            if (boss.tier === 3) {
-              gameWon = true;
-            }
+            if (boss.tier === 3) gameWon = true;
             boss = null;
           }
           continue;
@@ -356,7 +517,6 @@
         if (b.y < -20) bullets.splice(i, 1);
       }
 
-      // گلوله‌های باس
       for (let i = bossBullets.length - 1; i >= 0; i--) {
         const bb = bossBullets[i];
         bb.y += bb.vy;
@@ -381,7 +541,6 @@
         if (bb.y > H + 30 || bb.y < -30 || bb.x < -30 || bb.x > W + 30) bossBullets.splice(i, 1);
       }
 
-      // پاورآپ‌ها
       for (let i = powerups.length - 1; i >= 0; i--) {
         const p = powerups[i];
         p.y += p.vy;
@@ -401,7 +560,6 @@
         if (p.y > H + 40) powerups.splice(i, 1);
       }
 
-      // دشمن‌ها
       for (let i = enemies.length - 1; i >= 0; i--) {
         const e = enemies[i];
         e.y += e.speed;
@@ -462,7 +620,6 @@
       ctx.fillStyle = '#05050d';
       ctx.fillRect(0, 0, W, H);
 
-      // گلوله‌ها
       ctx.fillStyle = '#00ffff';
       ctx.shadowBlur = 10;
       ctx.shadowColor = '#00ffff';
@@ -472,7 +629,6 @@
         ctx.fill();
       });
 
-      // گلوله‌های باس
       ctx.fillStyle = '#ff2244';
       ctx.shadowBlur = 12;
       ctx.shadowColor = '#ff2244';
@@ -482,7 +638,6 @@
         ctx.fill();
       });
 
-      // پاورآپ‌ها
       powerups.forEach(p => {
         ctx.shadowBlur = 15;
         ctx.shadowColor = p.type === 'shield' ? '#00e5ff' : '#ffeb3b';
@@ -497,7 +652,6 @@
         ctx.fillText(p.type === 'shield' ? '🛡️' : '⚡', p.x, p.y);
       });
 
-      // سفینه
       if (!gameOver && !gameWon) {
         ctx.shadowBlur = 18;
         ctx.shadowColor = '#00e5ff';
@@ -519,7 +673,6 @@
         }
       }
 
-      // دشمن‌ها
       enemies.forEach(e => {
         ctx.shadowBlur = 12;
         ctx.shadowColor = e.color;
@@ -529,7 +682,6 @@
         ctx.fill();
       });
 
-      // باس و خط سلامت
       if (boss) {
         ctx.shadowBlur = 24;
         ctx.shadowColor = boss.color;
@@ -584,7 +736,6 @@
       ctx.globalAlpha = 1;
       ctx.shadowBlur = 0;
 
-      // HUD
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 18px sans-serif';
       ctx.textAlign = 'left';
@@ -601,37 +752,6 @@
         ctx.font = '14px sans-serif';
         ctx.textAlign = 'left';
         ctx.fillText(`Boost: ${Math.ceil(powerTimer / 60)}s`, 20, 68);
-      }
-
-      if (gameOver) {
-        ctx.fillStyle = 'rgba(0,0,0,0.85)';
-        ctx.fillRect(0, 0, W, H);
-        ctx.fillStyle = '#ff3366';
-        ctx.font = 'bold 34px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('GAME OVER', W / 2, H / 2 - 20);
-        ctx.fillStyle = '#fff';
-        ctx.font = '18px sans-serif';
-        ctx.fillText(`Final Score: ${score}`, W / 2, H / 2 + 25);
-        ctx.fillStyle = '#00e5ff';
-        ctx.font = '15px sans-serif';
-        ctx.fillText('برای بازی دوباره لمس کنید', W / 2, H / 2 + 75);
-      }
-
-      if (gameWon) {
-        ctx.fillStyle = 'rgba(0,0,0,0.88)';
-        ctx.fillRect(0, 0, W, H);
-        ctx.fillStyle = '#00ffcc';
-        ctx.font = 'bold 32px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('VICTORY!', W / 2, H / 2 - 30);
-        ctx.fillStyle = '#fff';
-        ctx.font = '18px sans-serif';
-        ctx.fillText('شما تمام باس‌ها را شکست دادید!', W / 2, H / 2 + 15);
-        ctx.fillText(`Final Score: ${score}`, W / 2, H / 2 + 45);
-        ctx.fillStyle = '#ffeb3b';
-        ctx.font = '15px sans-serif';
-        ctx.fillText('برای شروع مجدد لمس کنید', W / 2, H / 2 + 95);
       }
     }
 
