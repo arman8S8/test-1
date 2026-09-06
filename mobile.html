@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Space Defender - Shield & Boss Upgrade</title>
+  <title>Space Defender - Ultimate</title>
   <style>
     * { box-sizing: border-box; touch-action: none; user-select: none; }
     body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #05050d; font-family: sans-serif; }
@@ -25,15 +25,82 @@
       H = canvas.height = window.innerHeight;
     });
 
+    // موتور تولید صدای پیشرفته بدون فایل خارجی (Web Audio API)
+    let audioCtx = null;
+    function initAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+    }
+
+    function playSound(type) {
+      if (!audioCtx) return;
+      try {
+        const now = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        if (type === 'shoot') {
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(650, now);
+          osc.frequency.exponentialRampToValueAtTime(120, now + 0.08);
+          gain.gain.setValueAtTime(0.08, now);
+          gain.gain.linearRampToValueAtTime(0.01, now + 0.08);
+          osc.start(now);
+          osc.stop(now + 0.08);
+        } else if (type === 'hit') {
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(220, now);
+          osc.frequency.linearRampToValueAtTime(40, now + 0.12);
+          gain.gain.setValueAtTime(0.12, now);
+          gain.gain.linearRampToValueAtTime(0.01, now + 0.12);
+          osc.start(now);
+          osc.stop(now + 0.12);
+        } else if (type === 'powerup') {
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(320, now);
+          osc.frequency.exponentialRampToValueAtTime(880, now + 0.18);
+          gain.gain.setValueAtTime(0.15, now);
+          gain.gain.linearRampToValueAtTime(0.01, now + 0.18);
+          osc.start(now);
+          osc.stop(now + 0.18);
+        } else if (type === 'alarm') {
+          osc.type = 'square';
+          osc.frequency.setValueAtTime(440, now);
+          osc.frequency.setValueAtTime(880, now + 0.1);
+          gain.gain.setValueAtTime(0.1, now);
+          gain.gain.linearRampToValueAtTime(0.01, now + 0.25);
+          osc.start(now);
+          osc.stop(now + 0.25);
+        } else if (type === 'bossExplode') {
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(150, now);
+          osc.frequency.exponentialRampToValueAtTime(20, now + 0.5);
+          gain.gain.setValueAtTime(0.3, now);
+          gain.gain.linearRampToValueAtTime(0.01, now + 0.5);
+          osc.start(now);
+          osc.stop(now + 0.5);
+        }
+      } catch (e) {}
+    }
+
+    function vibrate(ms) {
+      if (navigator.vibrate) {
+        try { navigator.vibrate(ms); } catch (e) {}
+      }
+    }
+
     let score = 0;
     let gameOver = false;
+    let gameWon = false;
     let lastShot = 0;
-    let baseFireRate = 220; // سرعت شلیک پایه
+    let baseFireRate = 220;
     let fireRate = baseFireRate; 
     let powerLevel = 1;
     let powerTimer = 0;
     
-    // سیستم سپر لایه‌ای (حداکثر ۳)
     let shields = 1; 
     const maxShields = 3;
 
@@ -43,12 +110,15 @@
     const enemies = [];
     const particles = [];
     const powerups = [];
-    const floatingTexts = []; // متن‌های شناور مثل -10
+    const floatingTexts = [];
 
-    // متغیرهای باس
+    // باس‌ها
     let boss = null;
     let bossSpawned2000 = false;
+    let bossSpawned5000 = false;
+    let bossSpawned10000 = false;
     let bossWarningTimer = 0;
+    let spiralAngle = 0; // برای شلیک چرخشی باس نهایی
 
     window.addEventListener('touchmove', (e) => {
       if (gameOver) return;
@@ -58,7 +128,8 @@
     });
 
     window.addEventListener('touchstart', (e) => {
-      if (gameOver) {
+      initAudio();
+      if (gameOver || gameWon) {
         resetGame();
         return;
       }
@@ -76,7 +147,10 @@
       shields = 1;
       boss = null;
       bossSpawned2000 = false;
+      bossSpawned5000 = false;
+      bossSpawned10000 = false;
       bossWarningTimer = 0;
+      spiralAngle = 0;
       player.x = W / 2;
       player.y = H - 120;
       player.targetX = player.x;
@@ -88,6 +162,7 @@
       powerups.length = 0;
       floatingTexts.length = 0;
       gameOver = false;
+      gameWon = false;
     }
 
     function createParticles(x, y, color, count = 12) {
@@ -127,34 +202,60 @@
     }
 
     function spawnBoss(tier) {
-      boss = {
-        tier: tier,
-        x: W / 2,
-        y: -80,
-        targetY: 100,
-        r: 45,
-        hp: 65,
-        maxHp: 65,
-        vx: 3.2,
-        lastShoot: 0,
-        shootInterval: 750
-      };
+      bossWarningTimer = 110;
+      playSound('alarm');
+      vibrate(250);
+
+      if (tier === 1) {
+        boss = {
+          tier: 1,
+          name: "VANGUARD DESTROYER",
+          x: W / 2, y: -80, targetY: 100,
+          r: 44, hp: 65, maxHp: 65, vx: 3.2,
+          lastShoot: 0, shootInterval: 750,
+          color: '#ff0055'
+        };
+      } else if (tier === 2) {
+        boss = {
+          tier: 2,
+          name: "CRIMSON TITAN",
+          x: W / 2, y: -90, targetY: 120,
+          r: 54, hp: 120, maxHp: 120, vx: 4,
+          lastShoot: 0, shootInterval: 600,
+          color: '#ff6600'
+        };
+      } else if (tier === 3) {
+        boss = {
+          tier: 3,
+          name: "VOID LEVIATHAN (FINAL BOSS)",
+          x: W / 2, y: -110, targetY: 130,
+          r: 65, hp: 220, maxHp: 220, vx: 2.5,
+          lastShoot: 0, shootInterval: 250, // رگبار مارپیچ
+          color: '#cc00ff'
+        };
+      }
     }
 
     let enemyTimer = 0;
 
     function update(time) {
-      // بررسی رسیدن به امتیاز باس
+      // شرایط ورود باس‌ها
       if (score >= 2000 && !bossSpawned2000 && !boss) {
         bossSpawned2000 = true;
-        bossWarningTimer = 120;
         spawnBoss(1);
+      } else if (score >= 5000 && !bossSpawned5000 && !boss) {
+        bossSpawned5000 = true;
+        spawnBoss(2);
+      } else if (score >= 10000 && !bossSpawned10000 && !boss) {
+        bossSpawned10000 = true;
+        spawnBoss(3);
       }
 
-      // شلیک خودکار بازیکن بر اساس نرخ شلیک فعلی
+      // شلیک خودکار بازیکن
       const currentRate = (powerTimer > 0 && fireRate < baseFireRate) ? fireRate : baseFireRate;
-      if (!gameOver && time - lastShot > currentRate) {
+      if (!gameOver && !gameWon && time - lastShot > currentRate) {
         lastShot = time;
+        playSound('shoot');
         if (powerLevel === 1) {
           bullets.push({ x: player.x, y: player.y - player.r, vy: -12 });
         } else if (powerLevel === 2) {
@@ -170,7 +271,6 @@
       player.x += (player.targetX - player.x) * 0.2;
       player.y += (player.targetY - player.y) * 0.2;
 
-      // پاورآپ‌های موقت (تیر سه‌تایی و رگبار موقت)
       if (powerTimer > 0) {
         powerTimer--;
         if (powerTimer <= 0) {
@@ -179,17 +279,16 @@
         }
       }
 
-      // تولید دشمن در صورت نبود باس
       if (!boss) {
         enemyTimer++;
-        const spawnInterval = Math.max(18, 55 - Math.floor(score / 200));
+        const spawnInterval = Math.max(16, 55 - Math.floor(score / 200));
         if (enemyTimer > spawnInterval) {
           spawnEnemy();
           enemyTimer = 0;
         }
       }
 
-      // حرکت و شلیک باس
+      // حرکت و الگوی تیراندازی باس‌ها
       if (boss) {
         if (boss.y < boss.targetY) boss.y += 2;
         boss.x += boss.vx;
@@ -197,15 +296,31 @@
           boss.vx *= -1;
         }
 
+        // الگوی حمله بر اساس رده باس
         if (time - boss.lastShoot > boss.shootInterval) {
           boss.lastShoot = time;
-          bossBullets.push({ x: boss.x, y: boss.y + boss.r, vy: 5, r: 6 });
-          bossBullets.push({ x: boss.x - 20, y: boss.y + boss.r, vy: 4.5, vx: -1.5, r: 5 });
-          bossBullets.push({ x: boss.x + 20, y: boss.y + boss.r, vy: 4.5, vx: 1.5, r: 5 });
+          
+          if (boss.tier === 1) {
+            bossBullets.push({ x: boss.x, y: boss.y + boss.r, vy: 5, r: 6 });
+            bossBullets.push({ x: boss.x - 20, y: boss.y + boss.r, vy: 4.5, vx: -1.5, r: 5 });
+            bossBullets.push({ x: boss.x + 20, y: boss.y + boss.r, vy: 4.5, vx: 1.5, r: 5 });
+          } else if (boss.tier === 2) {
+            // شلیک سه‌گانه با زوایای مختلف
+            for (let a = -2; a <= 2; a++) {
+              bossBullets.push({ x: boss.x + (a * 10), y: boss.y + boss.r, vy: 4.8, vx: a * 1.4, r: 6 });
+            }
+          } else if (boss.tier === 3) {
+            // رگبار چرخشی و متمرکز غول آخر
+            spiralAngle += 0.55;
+            const bvx = Math.cos(spiralAngle) * 4.5;
+            const bvy = Math.sin(spiralAngle) * 4.5 + 1.5;
+            bossBullets.push({ x: boss.x, y: boss.y + boss.r, vx: bvx, vy: bvy, r: 6 });
+            bossBullets.push({ x: boss.x, y: boss.y + boss.r, vx: -bvx, vy: bvy, r: 6 });
+          }
         }
       }
 
-      // گلوله‌های بازیکن
+      // برخورد گلوله‌های بازیکن
       for (let i = bullets.length - 1; i >= 0; i--) {
         const b = bullets[i];
         b.y += b.vy;
@@ -213,18 +328,26 @@
 
         if (boss && Math.hypot(b.x - boss.x, b.y - boss.y) < boss.r + 6) {
           boss.hp--;
-          createParticles(b.x, b.y, '#ff0055', 6);
+          createParticles(b.x, b.y, boss.color, 4);
           bullets.splice(i, 1);
 
           if (boss.hp <= 0) {
-            createParticles(boss.x, boss.y, '#ff0055', 40);
-            createParticles(boss.x, boss.y, '#00ffff', 40);
-            score += 1000;
-            // پاداش دائمی شکست باس: ارتقای سرعت شلیک پایه!
-            baseFireRate = Math.max(120, baseFireRate - 45);
+            playSound('bossExplode');
+            vibrate([100, 50, 200]);
+            createParticles(boss.x, boss.y, boss.color, 50);
+            createParticles(boss.x, boss.y, '#00ffff', 50);
+            
+            score += boss.tier * 1500;
+            baseFireRate = Math.max(90, baseFireRate - 35);
             addFloatingText("SPEED UPGRADED!", boss.x, boss.y - 20, '#00ffcc');
+            
             spawnPowerUp(boss.x, boss.y);
-            spawnPowerUp(boss.x - 25, boss.y);
+            spawnPowerUp(boss.x - 30, boss.y);
+            spawnPowerUp(boss.x + 30, boss.y);
+
+            if (boss.tier === 3) {
+              gameWon = true;
+            }
             boss = null;
           }
           continue;
@@ -243,15 +366,19 @@
           bossBullets.splice(i, 1);
           if (shields > 0) {
             shields--;
+            playSound('hit');
+            vibrate(120);
             createParticles(player.x, player.y, '#00ffff', 25);
           } else {
             gameOver = true;
+            playSound('hit');
+            vibrate(400);
             createParticles(player.x, player.y, '#ff4444', 35);
           }
           continue;
         }
 
-        if (bb.y > H + 30) bossBullets.splice(i, 1);
+        if (bb.y > H + 30 || bb.y < -30 || bb.x < -30 || bb.x > W + 30) bossBullets.splice(i, 1);
       }
 
       // پاورآپ‌ها
@@ -260,8 +387,10 @@
         p.y += p.vy;
         const d = Math.hypot(p.x - player.x, p.y - player.y);
         if (d < p.r + player.r) {
+          playSound('powerup');
+          vibrate(40);
           if (p.type === 'multi') { powerLevel = 3; powerTimer = 450; }
-          if (p.type === 'rapid') { fireRate = 90; powerTimer = 450; }
+          if (p.type === 'rapid') { fireRate = 80; powerTimer = 450; }
           if (p.type === 'shield') {
             if (shields < maxShields) shields++;
           }
@@ -272,7 +401,7 @@
         if (p.y > H + 40) powerups.splice(i, 1);
       }
 
-      // دشمن‌ها و بررسی خطای رد شدن (Miss)
+      // دشمن‌ها
       for (let i = enemies.length - 1; i >= 0; i--) {
         const e = enemies[i];
         e.y += e.speed;
@@ -280,6 +409,7 @@
         for (let j = bullets.length - 1; j >= 0; j--) {
           const b = bullets[j];
           if (Math.hypot(b.x - e.x, b.y - e.y) < e.r + 6) {
+            playSound('hit');
             createParticles(e.x, e.y, e.color, 16);
             score += 20;
             if (Math.random() < 0.15) spawnPowerUp(e.x, e.y);
@@ -289,20 +419,22 @@
           }
         }
 
-        // برخورد دشمن با بازیکن
         if (e && Math.hypot(e.x - player.x, e.y - player.y) < e.r + player.r) {
           if (shields > 0) {
             shields--;
+            playSound('hit');
+            vibrate(120);
             createParticles(player.x, player.y, '#00ffff', 25);
             enemies.splice(i, 1);
           } else {
             gameOver = true;
+            playSound('hit');
+            vibrate(400);
             createParticles(player.x, player.y, '#ff4444', 35);
           }
           continue;
         }
 
-        // اگر دشمن از پایین صفحه رد شد (جریمه امتیاز منفی و متن قرمز)
         if (e && e.y > H + 10) {
           score = Math.max(0, score - 10);
           addFloatingText("-10", e.x, H - 40, '#ff2244');
@@ -310,7 +442,6 @@
         }
       }
 
-      // متن‌های شناور
       for (let i = floatingTexts.length - 1; i >= 0; i--) {
         const ft = floatingTexts[i];
         ft.y += ft.vy;
@@ -318,7 +449,6 @@
         if (ft.alpha <= 0) floatingTexts.splice(i, 1);
       }
 
-      // پارتیکل‌ها
       for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
         p.x += p.vx;
@@ -332,7 +462,7 @@
       ctx.fillStyle = '#05050d';
       ctx.fillRect(0, 0, W, H);
 
-      // گلوله‌های بازیکن
+      // گلوله‌ها
       ctx.fillStyle = '#00ffff';
       ctx.shadowBlur = 10;
       ctx.shadowColor = '#00ffff';
@@ -343,9 +473,9 @@
       });
 
       // گلوله‌های باس
-      ctx.fillStyle = '#ff0033';
+      ctx.fillStyle = '#ff2244';
       ctx.shadowBlur = 12;
-      ctx.shadowColor = '#ff0033';
+      ctx.shadowColor = '#ff2244';
       bossBullets.forEach(bb => {
         ctx.beginPath();
         ctx.arc(bb.x, bb.y, bb.r, 0, Math.PI * 2);
@@ -368,7 +498,7 @@
       });
 
       // سفینه
-      if (!gameOver) {
+      if (!gameOver && !gameWon) {
         ctx.shadowBlur = 18;
         ctx.shadowColor = '#00e5ff';
         ctx.fillStyle = '#ffffff';
@@ -380,7 +510,6 @@
         ctx.closePath();
         ctx.fill();
 
-        // هاله محافظ دور سفینه در صورت داشتن سپر
         if (shields > 0) {
           ctx.strokeStyle = shields === 3 ? '#ffcc00' : (shields === 2 ? '#00ffcc' : '#00bfff');
           ctx.lineWidth = 2.5;
@@ -400,32 +529,32 @@
         ctx.fill();
       });
 
-      // باس و نوار سلامت
+      // باس و خط سلامت
       if (boss) {
-        ctx.shadowBlur = 20;
-        ctx.shadowColor = '#ff0055';
-        ctx.fillStyle = '#ff0055';
+        ctx.shadowBlur = 24;
+        ctx.shadowColor = boss.color;
+        ctx.fillStyle = boss.color;
         ctx.beginPath();
         ctx.arc(boss.x, boss.y, boss.r, 0, Math.PI * 2);
         ctx.fill();
 
-        const barW = W * 0.7;
+        const barW = W * 0.75;
         const barH = 12;
         const barX = (W - barW) / 2;
-        const barY = 32;
+        const barY = 34;
 
         ctx.shadowBlur = 0;
         ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
         ctx.fillRect(barX, barY, barW, barH);
 
         const hpPercent = Math.max(0, boss.hp / boss.maxHp);
-        ctx.fillStyle = '#ff0055';
+        ctx.fillStyle = boss.color;
         ctx.fillRect(barX, barY, barW * hpPercent, barH);
         
         ctx.fillStyle = '#fff';
-        ctx.font = 'bold 12px sans-serif';
+        ctx.font = 'bold 11px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('BOSS HP', W / 2, barY - 6);
+        ctx.fillText(boss.name, W / 2, barY - 6);
       }
 
       if (bossWarningTimer > 0) {
@@ -436,7 +565,6 @@
         ctx.fillText('⚠️ WARNING: BOSS INCOMING! ⚠️', W / 2, H / 2 - 50);
       }
 
-      // متن‌های شناور منفی/مثبت
       floatingTexts.forEach(ft => {
         ctx.globalAlpha = ft.alpha;
         ctx.fillStyle = ft.color;
@@ -446,7 +574,6 @@
       });
       ctx.globalAlpha = 1;
 
-      // پارتیکل‌ها
       particles.forEach(p => {
         ctx.globalAlpha = p.alpha;
         ctx.fillStyle = p.color;
@@ -457,13 +584,12 @@
       ctx.globalAlpha = 1;
       ctx.shadowBlur = 0;
 
-      // رابط کاربری (HUD): امتیاز بالا سمت چپ
+      // HUD
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 18px sans-serif';
       ctx.textAlign = 'left';
       ctx.fillText(`Score: ${score}`, 20, 42);
 
-      // نمایش سپرها بالا سمت راست (آیکون‌های 🛡️)
       ctx.textAlign = 'right';
       let shieldIcons = '';
       for (let i = 0; i < shields; i++) shieldIcons += '🛡️ ';
@@ -490,6 +616,22 @@
         ctx.fillStyle = '#00e5ff';
         ctx.font = '15px sans-serif';
         ctx.fillText('برای بازی دوباره لمس کنید', W / 2, H / 2 + 75);
+      }
+
+      if (gameWon) {
+        ctx.fillStyle = 'rgba(0,0,0,0.88)';
+        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = '#00ffcc';
+        ctx.font = 'bold 32px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('VICTORY!', W / 2, H / 2 - 30);
+        ctx.fillStyle = '#fff';
+        ctx.font = '18px sans-serif';
+        ctx.fillText('شما تمام باس‌ها را شکست دادید!', W / 2, H / 2 + 15);
+        ctx.fillText(`Final Score: ${score}`, W / 2, H / 2 + 45);
+        ctx.fillStyle = '#ffeb3b';
+        ctx.font = '15px sans-serif';
+        ctx.fillText('برای شروع مجدد لمس کنید', W / 2, H / 2 + 95);
       }
     }
 
