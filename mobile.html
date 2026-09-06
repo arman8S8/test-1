@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Space Defender - Boss Edition</title>
+  <title>Space Defender - Shield & Boss Upgrade</title>
   <style>
     * { box-sizing: border-box; touch-action: none; user-select: none; }
     body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #05050d; font-family: sans-serif; }
@@ -28,10 +28,14 @@
     let score = 0;
     let gameOver = false;
     let lastShot = 0;
-    let fireRate = 220; 
+    let baseFireRate = 220; // سرعت شلیک پایه
+    let fireRate = baseFireRate; 
     let powerLevel = 1;
     let powerTimer = 0;
-    let hasShield = false;
+    
+    // سیستم سپر لایه‌ای (حداکثر ۳)
+    let shields = 1; 
+    const maxShields = 3;
 
     const player = { x: W / 2, y: H - 120, r: 24, targetX: W / 2, targetY: H - 120 };
     const bullets = [];
@@ -39,6 +43,7 @@
     const enemies = [];
     const particles = [];
     const powerups = [];
+    const floatingTexts = []; // متن‌های شناور مثل -10
 
     // متغیرهای باس
     let boss = null;
@@ -66,8 +71,9 @@
       score = 0;
       powerLevel = 1;
       powerTimer = 0;
-      fireRate = 220;
-      hasShield = false;
+      baseFireRate = 220;
+      fireRate = baseFireRate;
+      shields = 1;
       boss = null;
       bossSpawned2000 = false;
       bossWarningTimer = 0;
@@ -80,6 +86,7 @@
       enemies.length = 0;
       particles.length = 0;
       powerups.length = 0;
+      floatingTexts.length = 0;
       gameOver = false;
     }
 
@@ -94,6 +101,10 @@
           alpha: 1
         });
       }
+    }
+
+    function addFloatingText(text, x, y, color = '#ff3344') {
+      floatingTexts.push({ text, x, y, alpha: 1, vy: -1.5 });
     }
 
     function spawnEnemy() {
@@ -122,9 +133,9 @@
         y: -80,
         targetY: 100,
         r: 45,
-        hp: 60,
-        maxHp: 60,
-        vx: 3,
+        hp: 65,
+        maxHp: 65,
+        vx: 3.2,
         lastShoot: 0,
         shootInterval: 750
       };
@@ -136,12 +147,13 @@
       // بررسی رسیدن به امتیاز باس
       if (score >= 2000 && !bossSpawned2000 && !boss) {
         bossSpawned2000 = true;
-        bossWarningTimer = 120; // نمایش هشدار
+        bossWarningTimer = 120;
         spawnBoss(1);
       }
 
-      // شلیک خودکار بازیکن
-      if (!gameOver && time - lastShot > fireRate) {
+      // شلیک خودکار بازیکن بر اساس نرخ شلیک فعلی
+      const currentRate = (powerTimer > 0 && fireRate < baseFireRate) ? fireRate : baseFireRate;
+      if (!gameOver && time - lastShot > currentRate) {
         lastShot = time;
         if (powerLevel === 1) {
           bullets.push({ x: player.x, y: player.y - player.r, vy: -12 });
@@ -158,15 +170,16 @@
       player.x += (player.targetX - player.x) * 0.2;
       player.y += (player.targetY - player.y) * 0.2;
 
+      // پاورآپ‌های موقت (تیر سه‌تایی و رگبار موقت)
       if (powerTimer > 0) {
         powerTimer--;
         if (powerTimer <= 0) {
           powerLevel = 1;
-          fireRate = 220;
+          fireRate = baseFireRate;
         }
       }
 
-      // تولید دشمن معمولی (فقط وقتی باسی در کار نیست)
+      // تولید دشمن در صورت نبود باس
       if (!boss) {
         enemyTimer++;
         const spawnInterval = Math.max(18, 55 - Math.floor(score / 200));
@@ -176,7 +189,7 @@
         }
       }
 
-      // رفتار و حرکت باس
+      // حرکت و شلیک باس
       if (boss) {
         if (boss.y < boss.targetY) boss.y += 2;
         boss.x += boss.vx;
@@ -184,7 +197,6 @@
           boss.vx *= -1;
         }
 
-        // شلیک تیر توسط باس
         if (time - boss.lastShoot > boss.shootInterval) {
           boss.lastShoot = time;
           bossBullets.push({ x: boss.x, y: boss.y + boss.r, vy: 5, r: 6 });
@@ -199,7 +211,6 @@
         b.y += b.vy;
         if (b.vx) b.x += b.vx;
 
-        // برخورد گلوله با باس
         if (boss && Math.hypot(b.x - boss.x, b.y - boss.y) < boss.r + 6) {
           boss.hp--;
           createParticles(b.x, b.y, '#ff0055', 6);
@@ -209,6 +220,9 @@
             createParticles(boss.x, boss.y, '#ff0055', 40);
             createParticles(boss.x, boss.y, '#00ffff', 40);
             score += 1000;
+            // پاداش دائمی شکست باس: ارتقای سرعت شلیک پایه!
+            baseFireRate = Math.max(120, baseFireRate - 45);
+            addFloatingText("SPEED UPGRADED!", boss.x, boss.y - 20, '#00ffcc');
             spawnPowerUp(boss.x, boss.y);
             spawnPowerUp(boss.x - 25, boss.y);
             boss = null;
@@ -225,11 +239,10 @@
         bb.y += bb.vy;
         if (bb.vx) bb.x += bb.vx;
 
-        // برخورد گلوله باس با بازیکن
         if (Math.hypot(bb.x - player.x, bb.y - player.y) < bb.r + player.r) {
           bossBullets.splice(i, 1);
-          if (hasShield) {
-            hasShield = false;
+          if (shields > 0) {
+            shields--;
             createParticles(player.x, player.y, '#00ffff', 25);
           } else {
             gameOver = true;
@@ -248,8 +261,10 @@
         const d = Math.hypot(p.x - player.x, p.y - player.y);
         if (d < p.r + player.r) {
           if (p.type === 'multi') { powerLevel = 3; powerTimer = 450; }
-          if (p.type === 'rapid') { fireRate = 100; powerTimer = 450; }
-          if (p.type === 'shield') { hasShield = true; }
+          if (p.type === 'rapid') { fireRate = 90; powerTimer = 450; }
+          if (p.type === 'shield') {
+            if (shields < maxShields) shields++;
+          }
           createParticles(p.x, p.y, '#00ffcc', 20);
           powerups.splice(i, 1);
           continue;
@@ -257,7 +272,7 @@
         if (p.y > H + 40) powerups.splice(i, 1);
       }
 
-      // دشمن‌ها و برخوردها
+      // دشمن‌ها و بررسی خطای رد شدن (Miss)
       for (let i = enemies.length - 1; i >= 0; i--) {
         const e = enemies[i];
         e.y += e.speed;
@@ -274,18 +289,33 @@
           }
         }
 
+        // برخورد دشمن با بازیکن
         if (e && Math.hypot(e.x - player.x, e.y - player.y) < e.r + player.r) {
-          if (hasShield) {
-            hasShield = false;
+          if (shields > 0) {
+            shields--;
             createParticles(player.x, player.y, '#00ffff', 25);
             enemies.splice(i, 1);
           } else {
             gameOver = true;
             createParticles(player.x, player.y, '#ff4444', 35);
           }
+          continue;
         }
 
-        if (e && e.y > H + 50) enemies.splice(i, 1);
+        // اگر دشمن از پایین صفحه رد شد (جریمه امتیاز منفی و متن قرمز)
+        if (e && e.y > H + 10) {
+          score = Math.max(0, score - 10);
+          addFloatingText("-10", e.x, H - 40, '#ff2244');
+          enemies.splice(i, 1);
+        }
+      }
+
+      // متن‌های شناور
+      for (let i = floatingTexts.length - 1; i >= 0; i--) {
+        const ft = floatingTexts[i];
+        ft.y += ft.vy;
+        ft.alpha -= 0.02;
+        if (ft.alpha <= 0) floatingTexts.splice(i, 1);
       }
 
       // پارتیکل‌ها
@@ -350,11 +380,12 @@
         ctx.closePath();
         ctx.fill();
 
-        if (hasShield) {
-          ctx.strokeStyle = '#00ffff';
-          ctx.lineWidth = 3;
+        // هاله محافظ دور سفینه در صورت داشتن سپر
+        if (shields > 0) {
+          ctx.strokeStyle = shields === 3 ? '#ffcc00' : (shields === 2 ? '#00ffcc' : '#00bfff');
+          ctx.lineWidth = 2.5;
           ctx.beginPath();
-          ctx.arc(player.x, player.y, player.r + 14, 0, Math.PI * 2);
+          ctx.arc(player.x, player.y, player.r + 12, 0, Math.PI * 2);
           ctx.stroke();
         }
       }
@@ -369,7 +400,7 @@
         ctx.fill();
       });
 
-      // رسم باس و خط جان
+      // باس و نوار سلامت
       if (boss) {
         ctx.shadowBlur = 20;
         ctx.shadowColor = '#ff0055';
@@ -378,11 +409,10 @@
         ctx.arc(boss.x, boss.y, boss.r, 0, Math.PI * 2);
         ctx.fill();
 
-        // خط سلامت باس بالای صفحه
         const barW = W * 0.7;
         const barH = 12;
         const barX = (W - barW) / 2;
-        const barY = 30;
+        const barY = 32;
 
         ctx.shadowBlur = 0;
         ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
@@ -398,14 +428,23 @@
         ctx.fillText('BOSS HP', W / 2, barY - 6);
       }
 
-      // اخطار ورود باس
       if (bossWarningTimer > 0) {
         bossWarningTimer--;
         ctx.fillStyle = '#ff0055';
-        ctx.font = 'bold 24px sans-serif';
+        ctx.font = 'bold 22px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('WARNING: BOSS APPROACHING!', W / 2, H / 2 - 50);
+        ctx.fillText('⚠️ WARNING: BOSS INCOMING! ⚠️', W / 2, H / 2 - 50);
       }
+
+      // متن‌های شناور منفی/مثبت
+      floatingTexts.forEach(ft => {
+        ctx.globalAlpha = ft.alpha;
+        ctx.fillStyle = ft.color;
+        ctx.font = 'bold 18px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(ft.text, ft.x, ft.y);
+      });
+      ctx.globalAlpha = 1;
 
       // پارتیکل‌ها
       particles.forEach(p => {
@@ -418,16 +457,24 @@
       ctx.globalAlpha = 1;
       ctx.shadowBlur = 0;
 
-      // امتیاز و وضعیت
+      // رابط کاربری (HUD): امتیاز بالا سمت چپ
       ctx.fillStyle = '#fff';
-      ctx.font = '18px sans-serif';
+      ctx.font = 'bold 18px sans-serif';
       ctx.textAlign = 'left';
-      ctx.fillText(`Score: ${score}`, 20, 45);
+      ctx.fillText(`Score: ${score}`, 20, 42);
+
+      // نمایش سپرها بالا سمت راست (آیکون‌های 🛡️)
+      ctx.textAlign = 'right';
+      let shieldIcons = '';
+      for (let i = 0; i < shields; i++) shieldIcons += '🛡️ ';
+      ctx.font = '16px sans-serif';
+      ctx.fillText(shieldIcons.trim() || 'NO SHIELD', W - 20, 42);
 
       if (powerTimer > 0) {
         ctx.fillStyle = '#ffeb3b';
         ctx.font = '14px sans-serif';
-        ctx.fillText(`Boost: ${Math.ceil(powerTimer / 60)}s`, 20, 72);
+        ctx.textAlign = 'left';
+        ctx.fillText(`Boost: ${Math.ceil(powerTimer / 60)}s`, 20, 68);
       }
 
       if (gameOver) {
