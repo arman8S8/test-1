@@ -64,7 +64,7 @@
       margin-top: 10px;
       text-align: left;
       font-size: 13px;
-      max-height: 120px;
+      max-height: 130px;
       overflow-y: auto;
       border-top: 1px solid rgba(255,255,255,0.1);
       padding-top: 8px;
@@ -72,7 +72,7 @@
     .score-row {
       display: flex;
       justify-content: space-between;
-      padding: 3px 0;
+      padding: 4px 0;
       color: #ddd;
     }
     .score-row span:last-child { color: #ffeb3b; font-weight: bold; }
@@ -82,7 +82,7 @@
   <canvas id="game"></canvas>
 
   <div id="leaderboard-modal">
-    <h2 id="modal-title">ثبت رکورد جدید</h2>
+    <h2 id="modal-title">ثبت رکورد جهانی</h2>
     <p>امتیاز شما: <span id="final-score-val" style="color:#00ffff; font-weight:bold;">0</span></p>
     <div id="submit-section">
       <input type="text" id="player-name-input" maxlength="12" placeholder="نام خود را بنویسید">
@@ -94,23 +94,11 @@
     </div>
   </div>
 
-  <!-- اسکریپت ماژول فایربیس -->
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-    import { getFirestore, collection, addDoc, getDocs, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-
-    const firebaseConfig = {
-      apiKey: "AIzaSyBcmnZIxNGkPBj8j-grP5flgjrebXgi-hI",
-      authDomain: "space-defender-game.firebaseapp.com",
-      projectId: "space-defender-game",
-      storageBucket: "space-defender-game.firebasestorage.app",
-      messagingSenderId: "902447254764",
-      appId: "1:902447254764:web:ee83267fc9571c34ed69c9",
-      measurementId: "G-V5MBY3SVSW"
-    };
-
-    const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
+  <!-- اسکریپت لیدربورد بدون تحریم با jsonbin.io -->
+  <script>
+    const BIN_ID = "6aa984c2ffd5d160530b033a";
+    const API_KEY = "$2a$10$qpRujqMG/9eMMzW.o1.Wdu0vHCx3FI6ReosN6KmPbELCuLeo/R8zG";
+    const BASE_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
 
     const modal = document.getElementById('leaderboard-modal');
     const finalScoreVal = document.getElementById('final-score-val');
@@ -120,25 +108,33 @@
     const scoresList = document.getElementById('scores-list');
     const submitSection = document.getElementById('submit-section');
 
+    async function fetchScores() {
+      try {
+        const res = await fetch(`${BASE_URL}/latest`, {
+          headers: { 'X-Master-Key': API_KEY }
+        });
+        const data = await res.json();
+        return (data.record && data.record.scores) ? data.record.scores : [];
+      } catch (err) {
+        console.error(err);
+        return [];
+      }
+    }
+
     async function loadTopScores() {
       scoresList.innerHTML = '<div style="text-align:center; color:#888;">در حال دریافت...</div>';
-      try {
-        const q = query(collection(db, "scores"), orderBy("score", "desc"), limit(5));
-        const snap = await getDocs(q);
-        scoresList.innerHTML = '';
-        let rank = 1;
-        snap.forEach(doc => {
-          const d = doc.data();
-          const row = document.createElement('div');
-          row.className = 'score-row';
-          row.innerHTML = `<span>#${rank} ${d.name}</span><span>${d.score}</span>`;
-          scoresList.appendChild(row);
-          rank++;
-        });
-        if (rank === 1) scoresList.innerHTML = '<div style="text-align:center; color:#777;">هنوز رکوردی ثبت نشده!</div>';
-      } catch (e) {
-        scoresList.innerHTML = '<div style="text-align:center; color:#ff4444;">خطا در دریافت جدول</div>';
+      const scores = await fetchScores();
+      scoresList.innerHTML = '';
+      if (scores.length === 0) {
+        scoresList.innerHTML = '<div style="text-align:center; color:#777;">هنوز رکوردی ثبت نشده!</div>';
+        return;
       }
+      scores.slice(0, 5).forEach((item, idx) => {
+        const row = document.createElement('div');
+        row.className = 'score-row';
+        row.innerHTML = `<span>#${idx + 1} ${item.name}</span><span>${item.score}</span>`;
+        scoresList.appendChild(row);
+      });
     }
 
     submitBtn.addEventListener('click', async (e) => {
@@ -146,16 +142,28 @@
       const name = nameInput.value.trim() || 'خلبان گمنام';
       submitBtn.disabled = true;
       submitBtn.innerText = 'در حال ثبت...';
+
       try {
-        await addDoc(collection(db, "scores"), {
-          name: name,
-          score: window.latestGameScore || 0,
-          date: new Date()
+        const currentScores = await fetchScores();
+        currentScores.push({ name, score: window.latestGameScore || 0, date: Date.now() });
+        // مرتب‌سازی نزولی بر اساس امتیاز
+        currentScores.sort((a, b) => b.score - a.score);
+        // نگه داشتن ۲۰ رکورد برتر برای سبک ماندن حافظه
+        const topScores = currentScores.slice(0, 20);
+
+        await fetch(BASE_URL, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Master-Key': API_KEY
+          },
+          body: JSON.stringify({ scores: topScores })
         });
+
         submitSection.style.display = 'none';
         await loadTopScores();
       } catch (err) {
-        alert('خطا در ثبت رکورد');
+        alert('خطا در ثبت رکورد. لطفاً اتصال اینترنت را چک کنید.');
         submitBtn.disabled = false;
         submitBtn.innerText = 'ثبت در جدول جهانی';
       }
@@ -178,7 +186,7 @@
     };
   </script>
 
-  <!-- اسکریپت موتور بازی -->
+  <!-- موتور بازی کامل با باس‌ها و صدا -->
   <script>
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
